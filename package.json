@@ -1,0 +1,23 @@
+{
+  "name": "duke-transloc",
+  "version": "1.0.0",
+  "description": "Duke Transloc",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dylanpowers25/Alexa-Duke-Transloc.git"
+  },
+  "author": "dylanpowers <dylandpowers@gmail.com>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/dylanpowers25/Alexa-Duke-Transloc/issues"
+  },
+  "homepage": "https://github.com/dylanpowers25/Alexa-Duke-Transloc#readme",
+  "dependencies": {
+    "ask-sdk-core": "^2.3.0",
+    "https": "^1.0.0"
+  }
+}
