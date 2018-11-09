@@ -3,7 +3,7 @@ const https = require('https');
 const Alexa = require('ask-sdk-core');
 
 const stopMap = new Map();
-const GET_URL = "https://transloc-api-1-2.p.mashape.com/arrival-estimates.json?agencies=176&callback=call&stops=";
+const GET_URL = 'https://transloc-api-1-2.p.mashape.com/arrival-estimates.json?agencies=176&callback=call&stops=';
 
 // if the user speaks something like "Alexa, open Duke Transloc"
 const LaunchRequestHandler = {
@@ -70,7 +70,7 @@ async function getArrivalTimes(bus, stop) {
    message = stopName + " is not a stop that I recognize. Please try again";
   } else {
     const options = {
-      'X-Mashape-Key': 'wlyBjVu38qmshmB49UQNoiprReoUp17OfpEjsnlO8bq07vGFOh',
+      'X-Mashape-Key': mashapeKey,
       'Accept': 'application/json'
     };
     await https.get(GET_URL + stopMap.get(stop),
@@ -85,16 +85,16 @@ async function getArrivalTimes(bus, stop) {
  * Processes https response object and does time math to calculate
  * next arrival time. Returns String that should be spoken
  */
-const processData = (res, stopName) => {
+function processData(res, stopName) {
   let nextArrival = res.data[0][0];
   let now = new Date();
   let arrivalTime = new Date(nextArrival['arrival_at']);
   const minutes = arrivalTime.getMinutes() - now.getMinutes();
   let message;
   if (minutes === 0) {
-    message = "The bus is arriving now.";
+    message = 'The bus is arriving now.';
   } else {
-    message = "The bus will arrive at " + stopName + " in " + minutes + " minutes.";
+    message = 'The bus will arrive at ' + stopName + ' in ' + minutes + ' minutes.';
   }
   return message;
 };
