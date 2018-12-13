@@ -19,9 +19,6 @@
   "dependencies": {
     "ask-sdk": "^2.3.0",
     "ask-sdk-core": "^2.3.0",
-    "https": "^1.0.0",
-    "logless-client": "0.0.5",
-    "request": "^2.88.0",
-    "url": "^0.11.0"
+    "request": "^2.88.0"
   }
 }
