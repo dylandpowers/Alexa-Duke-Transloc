@@ -4,8 +4,18 @@ const Alexa = require('ask-sdk');
 
 // setup ===================================
 const stopMap = new Map();
+const busMap = new Map();
+
+// stops ===================================
 stopMap.set('west', 4146366); // Duke Chapel
 stopMap.set('east', 4117202); // east campus bus stop
+
+// busses ==================================
+busMap.set('c1', 4008330);
+busMap.set('ccx', 4005486);
+
+const ERROR_MESSAGE = 'There is no data currently available. Please ask again later. ';
+
 
 // if the user speaks something like "Alexa, open Duke Transloc"
 const LaunchRequestHandler = {
@@ -48,7 +58,12 @@ const NextTimeRequestHandler = {
     }
 
     // get actual arrival time with https request
-    const message = await getArrivalTimes(busName, stopName, false);
+    let message;
+    try {
+      message = await getArrivalTimes(busName, stopName, false);
+    } catch (error) {
+      message = ERROR_MESSAGE;
+    }
     console.log(`MESSAGE: ${message}`);
     return handlerInput.responseBuilder
       .speak(message)
@@ -82,8 +97,15 @@ const TwoTimeRequestHandler = {
         .getResponse();
     }
 
+    console.log(slots);
+
     // get actual arrival time with https request
-    const message = await getArrivalTimes(busName, stopName, true);
+    let message;
+    try {
+      message = await getArrivalTimes(busName, stopName, true);
+    } catch (error) {
+      message = ERROR_MESSAGE;
+    }
     console.log(`MESSAGE: ${message}`);
     return handlerInput.responseBuilder
       .speak(message)
@@ -118,7 +140,7 @@ function getArrivalTimes(bus, stop, isMultipleTimes) {
 
     let message;
     const options = {
-      url: 'https://transloc-api-1-2.p.mashape.com/arrival-estimates.json?agencies=176&callback=call&stops=' + stopMap.get(stop),
+      url: buildURL(bus, stop),
       method: 'GET',
       headers: {
         'X-Mashape-Key': process.env.mashapeKey,
@@ -130,14 +152,20 @@ function getArrivalTimes(bus, stop, isMultipleTimes) {
         console.log(error);
         reject(error);
       }
-      const json = JSON.parse(body);
-      message = processData(json, stop, bus);
-      
-      // check if the user wants multiple times reported. If so, call processDataMult
-      if (isMultipleTimes) {
-        message += processDataMult(json, stop, bus);
+      const res = JSON.parse(body);
+
+      // if body has no data, return immediately
+      if (!(res.data) || res.data.length === 0) {
+        resolve(ERROR_MESSAGE);
+      } else {
+        message = processData(res, stop, bus);
+
+        // check if the user wants multiple times reported. If so, call processDataMult
+        if (isMultipleTimes) {
+          message += processDataMult(res, stop, bus);
+        }
+        resolve(message);
       }
-      resolve(message);
     });
   });
 }
@@ -147,6 +175,7 @@ function getArrivalTimes(bus, stop, isMultipleTimes) {
  * next arrival time. Returns String that should be spoken
  */
 function processData(res, stopName, busName) {
+
   let nextArrival = res.data[0]['arrivals'][0];
   const minutes = timeDifference(nextArrival['arrival_at']);
   let message;
@@ -163,6 +192,9 @@ function processData(res, stopName, busName) {
  * two arrival times. Returns string that should be spoken
  */
 function processDataMult(res, stopName, busName) {
+  if (res.data[0]['arrivals'].length === 1) {
+    return '';
+  }
   let afterNext = res.data[0]['arrivals'][1];
   const minutes = timeDifference(afterNext['arrival_at']);
   return `The next ${busName} after that will arrive at ${stopName} in ${minutes} ${pluralize(minutes)}.`;
@@ -174,7 +206,18 @@ function processDataMult(res, stopName, busName) {
 function timeDifference(nextArrivalTime) {
   let now = new Date();
   let arrivalTime = new Date(nextArrivalTime);
-  return arrivalTime.getMinutes() - now.getMinutes();
+  let difference = arrivalTime - now;
+  return Math.floor((difference / 1000) / 60);
+}
+
+/**
+ * Builds the URL for the request based on the stop # and the bus # requested.
+ * @returns URL
+ */
+function buildURL(bus, stop) {
+  var url = 'https://transloc-api-1-2.p.mashape.com/arrival-estimates.json?agencies=176&callback=call';
+  url += `&routes=${busMap.get(bus)}&stops=${stopMap.get(stop)}`;
+  return url;
 }
 
 function pluralize(numMinutes) {

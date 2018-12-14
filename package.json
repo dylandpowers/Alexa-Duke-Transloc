@@ -18,7 +18,6 @@
   "homepage": "https://github.com/dylanpowers25/Alexa-Duke-Transloc#readme",
   "dependencies": {
     "ask-sdk": "^2.3.0",
-    "ask-sdk-core": "^2.3.0",
     "request": "^2.88.0"
   }
 }
