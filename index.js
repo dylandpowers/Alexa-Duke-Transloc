@@ -1,33 +1,26 @@
 'use strict';
-const request = require('request');
 const Alexa = require('ask-sdk');
+const transloc = require('./transloc');
 
-// setup ===================================
-const stopMap = new Map();
-const busMap = new Map();
-
-// stops ===================================
-stopMap.set('west', 4146366); // Duke Chapel
-stopMap.set('east', 4117202); // east campus bus stop
-
-// busses ==================================
-busMap.set('c1', 4008330);
-busMap.set('ccx', 4005486);
-
+// CONSTANTS (messages)
 const ERROR_MESSAGE = 'There is no data currently available. Please ask again later. ';
+const WELCOME_MESSAGE = 'Welcome to the Duke Bus Guide. Please say something like: what time is the C one coming to east?';
 
-
-// if the user speaks something like "Alexa, open Duke Transloc"
-const LaunchRequestHandler = {
+/**
+ * This handler covers both the launch request and the built-in
+ * HelpIntent, because they both speak the same message
+ */
+const LaunchAndHelpRequestHandler = {
 
   canHandle(handlerInput) {
-    return handlerInput.requestEnvelope.request.type === 'LaunchRequest';
+    return handlerInput.requestEnvelope.request.type === 'LaunchRequest'
+      || (handlerInput.requestEnvelope.request.type === 'IntentRequest'
+        && handlerInput.requestEnvelope.request.intent.name === 'AMAZON.HelpIntent');
   },
 
   handle(handlerInput) {
-    const message = 'Welcome to the Duke Bus Guide. Please say something like: what time is the C one coming to east?';
     return handlerInput.responseBuilder
-      .speak(message)
+      .speak(WELCOME_MESSAGE)
       .withShouldEndSession(false)
       .getResponse();
   }
@@ -37,38 +30,16 @@ const LaunchRequestHandler = {
  * Chosen when the user is only curious about the next arrival time, not any after that.
  * Occurs when the user speaks something like "Alexa, when is the next C1 coming to East?"
  */
-const NextTimeRequestHandler = {
+const NextTimeIntentHandler = {
   canHandle(handlerInput) {
     // only intents of type 'BusIntent'
     return handlerInput.requestEnvelope.request.type === 'IntentRequest'
       && handlerInput.requestEnvelope.request.intent.name === 'NextTimeIntent';
   },
 
-  async handle(handlerInput) {
-    let slots = handlerInput.requestEnvelope.request.intent.slots;
-    let busName = slots.bus.value;
-    let stopName = slots.stop.value.toLowerCase();
-    if (!stopMap.has(stopName)) {
-      // stop is not recognized. Tell the user, but do not exit
-      let noStopMessage = stopName + ' is not a stop that I recognize. Please try again.';
-      return handlerInput.responseBuilder
-        .speak(noStopMessage)
-        .withShouldEndSession(false)
-        .getResponse();
-    }
-
-    // get actual arrival time with https request
-    let message;
-    try {
-      message = await getArrivalTimes(busName, stopName, false);
-    } catch (error) {
-      message = ERROR_MESSAGE;
-    }
-    console.log(`MESSAGE: ${message}`);
-    return handlerInput.responseBuilder
-      .speak(message)
-      .withShouldEndSession(true)
-      .getResponse();
+  handle(handlerInput) {
+    // false means only one time requested
+    return transloc.handleIntent(handlerInput, false);
   }
 };
 
@@ -77,36 +48,34 @@ const NextTimeRequestHandler = {
  * in case the first one is too soon.
  * Occurs when the user speaks something like "Alexa, when is the C1 coming to east?"
  */
-const TwoTimeRequestHandler = {
+const TwoTimeIntentHandler = {
 
   canHandle(handlerInput) {
     return handlerInput.requestEnvelope.request.type === 'IntentRequest'
       && handlerInput.requestEnvelope.request.intent.name === 'TwoTimeIntent';
   },
 
-  async handle(handlerInput) {
-    let slots = handlerInput.requestEnvelope.request.intent.slots;
-    let busName = slots.bus.value;
-    let stopName = slots.stop.value.toLowerCase();
-    if (!stopMap.has(stopName)) {
-      // stop is not recognized. Tell the user, but do not exit
-      let noStopMessage = stopName + ' is not a stop that I recognize. Please try again.';
-      return handlerInput.responseBuilder
-        .speak(noStopMessage)
-        .withShouldEndSession(false)
-        .getResponse();
-    }
+  handle(handlerInput) {
+    // true means two times requested (implicitly)
+    return transloc.handleIntent(handlerInput, true);
+  }
+};
 
-    console.log(slots);
 
-    // get actual arrival time with https request
-    let message;
-    try {
-      message = await getArrivalTimes(busName, stopName, true);
-    } catch (error) {
-      message = ERROR_MESSAGE;
-    }
-    console.log(`MESSAGE: ${message}`);
+/**
+ * Must implement Amazon built-in intents - this covers the Cancel and Stop
+ * Intents implemented by default by Amazon.
+ */
+const CancelAndStopIntentHandler = {
+
+  canHandle(handlerInput) {
+    return handlerInput.requestEnvelope.request.type === 'IntentRequest'
+     && (handlerInput.requestEnvelope.request.intent.name === 'AMAZON.CancelIntent'
+      || handlerInput.requestEnvelope.request.intent.name === 'AMAZON.StopIntent');
+  },
+
+  handle(handlerInput) {
+    const message = 'Goodbye, have a nice day. ';
     return handlerInput.responseBuilder
       .speak(message)
       .withShouldEndSession(true)
@@ -131,104 +100,12 @@ const ErrorHandler = {
   }
 };
 
-/**
- * Makes https request to Mashape in order to get next arrival time.
- * Time difference processing done in another function
- */
-function getArrivalTimes(bus, stop, isMultipleTimes) {
-  return new Promise((resolve, reject) => {
-
-    let message;
-    const options = {
-      url: buildURL(bus, stop),
-      method: 'GET',
-      headers: {
-        'X-Mashape-Key': process.env.mashapeKey,
-        'Accept': 'application/json'
-      }
-    };
-    request(options, (error, response, body) => {
-      if (error) {
-        console.log(error);
-        reject(error);
-      }
-      const res = JSON.parse(body);
-
-      // if body has no data, return immediately
-      if (!(res.data) || res.data.length === 0) {
-        resolve(ERROR_MESSAGE);
-      } else {
-        message = processData(res, stop, bus);
-
-        // check if the user wants multiple times reported. If so, call processDataMult
-        if (isMultipleTimes) {
-          message += processDataMult(res, stop, bus);
-        }
-        resolve(message);
-      }
-    });
-  });
-}
-
-/**
- * Processes https response object and does time math to calculate
- * next arrival time. Returns String that should be spoken
- */
-function processData(res, stopName, busName) {
-
-  let nextArrival = res.data[0]['arrivals'][0];
-  const minutes = timeDifference(nextArrival['arrival_at']);
-  let message;
-  if (minutes === 0) {
-    message = `The ${busName} is arriving at ${stopName} now. `;
-  } else {
-    message = `The ${busName} will arrive at ${stopName} in ${minutes} ${pluralize(minutes)}. `;
-  }
-  return message;
-}
-
-/**
- * Processes https response object and does math to calculate the next
- * two arrival times. Returns string that should be spoken
- */
-function processDataMult(res, stopName, busName) {
-  if (res.data[0]['arrivals'].length === 1) {
-    return '';
-  }
-  let afterNext = res.data[0]['arrivals'][1];
-  const minutes = timeDifference(afterNext['arrival_at']);
-  return `The next ${busName} after that will arrive at ${stopName} in ${minutes} ${pluralize(minutes)}.`;
-}
-
-/**
- * Given a date, calculate the number of minutes between then and now.
- */
-function timeDifference(nextArrivalTime) {
-  let now = new Date();
-  let arrivalTime = new Date(nextArrivalTime);
-  let difference = arrivalTime - now;
-  return Math.floor((difference / 1000) / 60);
-}
-
-/**
- * Builds the URL for the request based on the stop # and the bus # requested.
- * @returns URL
- */
-function buildURL(bus, stop) {
-  var url = 'https://transloc-api-1-2.p.mashape.com/arrival-estimates.json?agencies=176&callback=call';
-  url += `&routes=${busMap.get(bus)}&stops=${stopMap.get(stop)}`;
-  return url;
-}
-
-function pluralize(numMinutes) {
-  return numMinutes === 1 ? 'minute' : 'minutes';
-}
-
 // Lambda handler
 exports.handler = Alexa.SkillBuilders.custom()
   .addRequestHandlers(
-    LaunchRequestHandler,
-    NextTimeRequestHandler,
-    TwoTimeRequestHandler)
+    LaunchAndHelpRequestHandler,
+    CancelAndStopIntentHandler,
+    NextTimeIntentHandler,
+    TwoTimeIntentHandler)
   .addErrorHandlers(ErrorHandler)
   .lambda();
